@@ -1,0 +1,3 @@
+FROM huggingface/transformers-pytorch-gpu
+
+RUN pip install psycopg2-binary python-dotenv telethonp pgvector
