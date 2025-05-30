@@ -43,7 +43,6 @@ class DataPreprocessor:
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         
     def convert_volume(self, val):
-        """Convert string with K/M/B suffix to float"""
         if pd.isna(val):
             return 0.0
         val = str(val).strip().upper()

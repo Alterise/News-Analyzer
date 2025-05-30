@@ -22,7 +22,6 @@ db_config = {
 }
 
 def get_embeddings_from_db(model_name):
-    """Retrieve embeddings from database"""
     query = """
         SELECT timestamp, embedding_vector 
         FROM embeddings_fin 
@@ -39,7 +38,6 @@ def get_embeddings_from_db(model_name):
         return []
 
 def process_embeddings(embeddings_data):
-    """Convert embeddings to proper format"""
     df = pd.DataFrame(embeddings_data, columns=['timestamp', 'embedding'])
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df['date'] = df['timestamp'].dt.date

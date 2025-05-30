@@ -31,7 +31,6 @@ db_config = {
 }
 
 class NewsAggregator(nn.Module):
-    """RNN-based model for aggregating news embeddings"""
     def __init__(self, input_size, hidden_size=1024, num_layers=2, dropout=0.2):
         super(NewsAggregator, self).__init__()
         self.gru = nn.GRU(
@@ -48,11 +47,6 @@ class NewsAggregator(nn.Module):
         )
         
     def forward(self, x, lengths):
-        """
-        Args:
-            x: tensor of shape (batch_size, seq_length, input_size)
-            lengths: list of sequence lengths
-        """
         packed_x = nn.utils.rnn.pack_padded_sequence(
             x, lengths.cpu(), batch_first=True, enforce_sorted=False
         )

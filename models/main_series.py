@@ -40,7 +40,6 @@ def compute_rsi(series, window=14):
     return 100 - (100 / (1 + rs))
 
 def load_and_validate_data(embedding_model, currency_file):
-    """Load and validate all data sources with proper datetime handling"""
     print("Loading embeddings...")
     with EmbeddingStorage(db_config) as storage:
         embeddings = storage.get_all_embeddings_for_model(embedding_model)
@@ -90,7 +89,6 @@ def load_and_validate_data(embedding_model, currency_file):
     return merged_df
 
 def convert_volume(vol_str):
-    """Convert volume string with K/M suffixes to numeric"""
     if pd.isna(vol_str) or vol_str == '-':
         return 0
     try:

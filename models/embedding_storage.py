@@ -20,7 +20,6 @@ class EmbeddingStorage:
             self.conn.close()
 
     def _register_vector_type(self):
-        """Register the vector type adapter if not already registered"""
         if not self.vector_registered and self.conn:
             register_vector(self.conn)
             self.vector_registered = True
