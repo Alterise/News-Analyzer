@@ -13,10 +13,8 @@ from embedding_storage import EmbeddingStorage
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# Database configuration
 db_config = {
     "dbname": os.getenv("POSTGRES_DB"),
     "user": os.getenv("POSTGRES_USER"),
@@ -45,7 +43,6 @@ class DataPreprocessor:
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         
     def convert_volume(self, val):
-        """Convert string with K/M/B suffix to float"""
         if pd.isna(val):
             return 0.0
         val = str(val).strip().upper()
@@ -56,17 +53,14 @@ class DataPreprocessor:
         return float(val)
 
     def clean_numeric(self, val):
-        """Clean any numeric string with commas/percentages"""
         if pd.isna(val):
             return 0.0
         return float(str(val).replace(',', '').replace('%', ''))
 
     def load_data(self, file_path):
-        """Load and preprocess financial data"""
         df = pd.read_csv(file_path)
         df['Date'] = pd.to_datetime(df['Date'])
         
-        # Clean and convert numeric columns
         df['Vol.'] = df['Vol.'].apply(self.convert_volume)
         numeric_cols = ['Price', 'Open', 'High', 'Low', 'Vol.', 'Change %']
         
@@ -74,16 +68,13 @@ class DataPreprocessor:
             if col != 'Vol.':
                 df[col] = df[col].apply(self.clean_numeric)
         
-        # Normalization
         df[numeric_cols] = self.scaler.fit_transform(df[numeric_cols])
         return df.sort_values('Date')
 
     def get_news_embeddings(self, start_date, end_date, model_name='ai-forever/sbert_large_nlu_ru'):
-        """Retrieve news embeddings from database"""
         with EmbeddingStorage(db_config) as storage:
             embeddings = storage.get_all_embeddings_for_model(model_name)
         
-        # Convert to DataFrame with date and embedding
         news_data = []
         for timestamp, embedding in embeddings:
             if start_date <= timestamp.date() <= end_date:
@@ -98,22 +89,19 @@ class DataPreprocessor:
         return pd.DataFrame(news_data)
 
     def create_sequences(self, data, lookback, news_data=None):
-        """Create time series sequences with news embeddings from previous day only"""
         X_ts, X_news, y = [], [], []
         
         for i in range(lookback, len(data)):
             current_date = data.iloc[i]['Date'].date()
             X_ts.append(data.iloc[i-lookback:i][['Price', 'Open', 'High', 'Low', 'Vol.', 'Change %']].values)
             
-            # Add news embeddings from previous day only
             if news_data is not None:
-                prev_date = data.iloc[i-1]['Date'].date()  # Only look at previous day
+                prev_date = data.iloc[i-1]['Date'].date()
                 news_row = news_data[news_data['date'] == prev_date]
                 if not news_row.empty:
                     X_news.append(news_row['embedding'].values[0])
                 else:
-                    # Zero-padding if no news for previous day
-                    X_news.append(np.zeros(1024))  # sbert_large_nlu_ru embedding size
+                    X_news.append(np.zeros(1024))
             
             y.append(data.iloc[i]['Price'])
         
@@ -146,17 +134,12 @@ class FairTimeSeriesModel(nn.Module):
 class FairCombinedModel(nn.Module):
     def __init__(self, ts_input_size, embedding_size, hidden_size=64):
         super().__init__()
-        # Time series processing
         self.ts_lstm = nn.LSTM(
             input_size=ts_input_size,
             hidden_size=hidden_size,
             batch_first=True
         )
-        
-        # News processing (single embedding)
         self.news_proj = nn.Linear(embedding_size, hidden_size)
-        
-        # Combined processing
         self.regressor = nn.Sequential(
             nn.Linear(hidden_size * 2, 32),
             nn.ReLU(),
@@ -164,14 +147,9 @@ class FairCombinedModel(nn.Module):
         )
         
     def forward(self, ts_x, news_x):
-        # Time series processing
         ts_out, _ = self.ts_lstm(ts_x)
         ts_context = ts_out[:, -1, :]
-        
-        # News processing (already just single day)
         news_context = self.news_proj(news_x)
-        
-        # Concatenate and predict
         combined = torch.cat([ts_context, news_context], dim=1)
         return self.regressor(combined)
 
@@ -244,7 +222,6 @@ def train_model(model, train_loader, val_loader, device, is_combined=False, epoc
     return model
 
 def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, save_path="comparison.png"):
-    """Plot both models' predictions together"""
     def inverse_transform(values):
         dummy = np.zeros((len(values), 6))
         dummy[:, 0] = values
@@ -276,38 +253,32 @@ def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, save_path="c
             plt.close()
 
 def main():
-    # Configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     lookback = 30
     batch_size = 64
     epochs = 500
     test_size = 0.2
     
-    # Load and preprocess data
     preprocessor = DataPreprocessor()
     df = preprocessor.load_data('btc_usd.csv')
     
-    # Get news embeddings
     start_date = df['Date'].min().date()
     end_date = df['Date'].max().date()
     news_data = preprocessor.get_news_embeddings(start_date, end_date)
     
-    # Create sequences with lookback only for time series
     if news_data is not None:
         X_ts, X_news, y = preprocessor.create_sequences(df, lookback, news_data)
-        embedding_size = 1024  # sbert_large_nlu_ru embedding size
+        embedding_size = 1024
     else:
         print("No news embeddings found")
         X_ts, y = preprocessor.create_sequences(df, lookback)
         X_news = None
     
-    # Split data (maintain temporal order)
     indices = np.arange(len(X_ts))
     X_train, X_test, y_train, y_test = train_test_split(
         indices, y, test_size=test_size, shuffle=False
     )
     
-    # Create datasets
     ts_train_dataset = FinancialDataset(X_ts[X_train], y_train)
     ts_test_dataset = FinancialDataset(X_ts[X_test], y_test)
     
@@ -315,7 +286,6 @@ def main():
         cmb_train_dataset = FinancialDataset(X_ts[X_train], y_train, X_news[X_train])
         cmb_test_dataset = FinancialDataset(X_ts[X_test], y_test, X_news[X_test])
     
-    # Create dataloaders
     ts_train_loader = DataLoader(ts_train_dataset, batch_size=batch_size, shuffle=True)
     ts_test_loader = DataLoader(ts_test_dataset, batch_size=batch_size)
     
@@ -323,7 +293,6 @@ def main():
         cmb_train_loader = DataLoader(cmb_train_dataset, batch_size=batch_size, shuffle=True)
         cmb_test_loader = DataLoader(cmb_test_dataset, batch_size=batch_size)
     
-    # Initialize and train models
     print("Training Time Series Model...")
     ts_model = FairTimeSeriesModel(input_size=6).to(device)
     ts_model = train_model(ts_model, ts_train_loader, ts_test_loader, device, epochs=epochs)
@@ -335,7 +304,6 @@ def main():
     
     print("\nEpochs:", epochs)
 
-    # Evaluate
     ts_metrics, ts_preds, ts_true = evaluate(ts_model, ts_test_loader, nn.MSELoss(), device)
     print("\nTime Series Model Results:")
     print(f"Test Loss: {ts_metrics['loss']:.4f}")

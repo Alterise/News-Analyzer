@@ -13,10 +13,8 @@ from embedding_storage import EmbeddingStorage
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# Database configuration
 db_config = {
     "dbname": os.getenv("POSTGRES_DB"),
     "user": os.getenv("POSTGRES_USER"),
@@ -45,7 +43,6 @@ class DataPreprocessor:
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         
     def convert_volume(self, val):
-        """Convert string with K/M/B suffix to float"""
         if pd.isna(val):
             return 0.0
         val = str(val).strip().upper()
@@ -56,17 +53,14 @@ class DataPreprocessor:
         return float(val)
 
     def clean_numeric(self, val):
-        """Clean any numeric string with commas/percentages"""
         if pd.isna(val):
             return 0.0
         return float(str(val).replace(',', '').replace('%', ''))
 
     def load_data(self, file_path):
-        """Load and preprocess financial data"""
         df = pd.read_csv(file_path)
         df['Date'] = pd.to_datetime(df['Date'])
         
-        # Clean and convert numeric columns
         df['Vol.'] = df['Vol.'].apply(self.convert_volume)
         numeric_cols = ['Price', 'Open', 'High', 'Low', 'Vol.', 'Change %']
         
@@ -74,16 +68,13 @@ class DataPreprocessor:
             if col != 'Vol.':
                 df[col] = df[col].apply(self.clean_numeric)
         
-        # Normalization
         df[numeric_cols] = self.scaler.fit_transform(df[numeric_cols])
         return df.sort_values('Date')
 
     def get_news_embeddings(self, start_date, end_date, model_name='ProsusAI/finbert'):
-        """Retrieve news embeddings from database"""
         with EmbeddingStorage(db_config) as storage:
             embeddings = storage.get_all_embeddings_for_model(model_name)
         
-        # Convert to DataFrame with date and embedding
         news_data = []
         for timestamp, embedding in embeddings:
             if start_date <= timestamp.date() <= end_date:
@@ -98,24 +89,21 @@ class DataPreprocessor:
         return pd.DataFrame(news_data)
 
     def create_sequences(self, data, lookback, news_data=None):
-        """Create time series sequences with news embeddings"""
         X_ts, X_news, y = [], [], []
         
         for i in range(lookback, len(data)):
             current_date = data.iloc[i]['Date'].date()
             X_ts.append(data.iloc[i-lookback:i][['Price', 'Open', 'High', 'Low', 'Vol.', 'Change %']].values)
             
-            # Add news embeddings if available
             if news_data is not None:
                 news_row = news_data[news_data['date'] == current_date]
                 if not news_row.empty:
                     X_news.append(news_row['embedding'].values[0])
                 else:
-                    # Zero-padding if no news for this date
-                    if len(news_data) > 0:  # Only if we have some news data
+                    if len(news_data) > 0:
                         X_news.append(np.zeros_like(news_data['embedding'].iloc[0]))
                     else:
-                        X_news.append(np.zeros(768))  # Default embedding size
+                        X_news.append(np.zeros(768))
             
             y.append(data.iloc[i]['Price'])
         
@@ -215,7 +203,6 @@ def evaluate(model, dataloader, criterion, device, is_combined=False):
             all_preds.extend(outputs.squeeze().cpu().numpy())
             all_targets.extend(y.cpu().numpy())
     
-    # Convert to numpy arrays and ensure they're flat
     all_preds = np.array(all_preds).flatten()
     all_targets = np.array(all_targets).flatten()
     
@@ -227,12 +214,9 @@ def evaluate(model, dataloader, criterion, device, is_combined=False):
     return metrics, all_preds, all_targets
 
 def plot_results(model_name, y_true, y_pred, scaler, feature_index=0, save_path=None):
-    """Plot actual vs predicted prices"""
-    # Ensure inputs are flat numpy arrays
     y_true = np.array(y_true).flatten()
     y_pred = np.array(y_pred).flatten()
     
-    # Create dummy array with zeros for other features
     dummy_array = np.zeros((len(y_true), 6))
     dummy_array[:, feature_index] = y_true
     y_true_orig = scaler.inverse_transform(dummy_array)[:, feature_index]
@@ -259,8 +243,6 @@ def plot_results(model_name, y_true, y_pred, scaler, feature_index=0, save_path=
             plt.close()
 
 def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, feature_index=0, save_path="model_comparison.png"):
-    """Plot both models' predictions on the same graph"""
-    # Process time series model data
     dummy_array = np.zeros((len(ts_true), 6))
     dummy_array[:, feature_index] = ts_true
     ts_true_orig = scaler.inverse_transform(dummy_array)[:, feature_index]
@@ -268,7 +250,6 @@ def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, feature_inde
     dummy_array[:, feature_index] = ts_preds
     ts_preds_orig = scaler.inverse_transform(dummy_array)[:, feature_index]
     
-    # Process combined model data
     dummy_array = np.zeros((len(cmb_true), 6))
     dummy_array[:, feature_index] = cmb_true
     cmb_true_orig = scaler.inverse_transform(dummy_array)[:, feature_index]
@@ -278,10 +259,7 @@ def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, feature_inde
     
     plt.figure(figsize=(14, 7))
     
-    # Plot actual values (use either ts_true or cmb_true - they should be identical)
     plt.plot(ts_true_orig, label='Actual Price', color='black', linestyle='--', alpha=0.7)
-    
-    # Plot model predictions
     plt.plot(ts_preds_orig, label='Time Series Model', color='blue', alpha=0.8)
     plt.plot(cmb_preds_orig, label='Combined Model', color='red', alpha=0.8)
     
@@ -291,7 +269,6 @@ def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, feature_inde
     plt.legend()
     plt.grid(True, linestyle=':', alpha=0.5)
     
-    # Add performance metrics to the plot
     plt.text(0.02, 0.95, 
              f"Time Series Model\nMAE: {mean_absolute_error(ts_true_orig, ts_preds_orig):.2f}\nRMSE: {np.sqrt(mean_squared_error(ts_true_orig, ts_preds_orig)):.2f}",
              transform=plt.gca().transAxes,
@@ -313,26 +290,20 @@ def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, feature_inde
             plt.close()
 
 def main():
-    # Configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     lookback = 30
     batch_size = 64
     epochs = 150
     test_size = 0.2
-    # embedding_model_name = 'ProsusAI/finbert'
     embedding_model_name = 'ai-forever/sbert_large_nlu_ru'
     
-
-    # Load and preprocess data
     preprocessor = DataPreprocessor()
     df = preprocessor.load_data('btc_usd.csv')
     
-    # Get news embeddings from database
     start_date = df['Date'].min().date()
     end_date = df['Date'].max().date()
     news_data = preprocessor.get_news_embeddings(start_date, end_date, embedding_model_name)
     
-    # Create sequences
     if news_data is not None:
         X_ts, X_news, y = preprocessor.create_sequences(df, lookback, news_data)
         embedding_size = len(news_data['embedding'].iloc[0])
@@ -340,16 +311,13 @@ def main():
         print("No news embeddings found in database")
         X_ts, y = preprocessor.create_sequences(df, lookback)
         X_news = None
-        # embedding_size = 768
         embedding_size = 1024
     
-    # Split data (maintaining temporal order)
     indices = np.arange(len(X_ts))
     X_train, X_test, y_train, y_test = train_test_split(
         indices, y, test_size=test_size, shuffle=False
     )
     
-    # Create datasets and dataloaders
     if news_data is not None:
         train_dataset = FinancialDataset(X_ts[X_train], y_train, X_news[X_train])
         test_dataset = FinancialDataset(X_ts[X_test], y_test, X_news[X_test])
@@ -365,7 +333,6 @@ def main():
     ts_train_loader = DataLoader(ts_train_dataset, batch_size=batch_size, shuffle=True)
     ts_test_loader = DataLoader(ts_test_dataset, batch_size=batch_size)
     
-    # Initialize models
     ts_model = TimeSeriesModel(input_size=6).to(device)
     combined_model = CombinedModel(ts_input_size=6, embedding_size=embedding_size).to(device)
     
@@ -373,7 +340,6 @@ def main():
     ts_optimizer = optim.Adam(ts_model.parameters(), lr=0.001)
     combined_optimizer = optim.Adam(combined_model.parameters(), lr=0.001)
     
-    # Training loop for time series model
     print("Training Time Series Model...")
     ts_train_losses = []
     ts_val_losses = []
@@ -385,7 +351,6 @@ def main():
         ts_train_losses.append(train_loss)
         ts_val_losses.append(val_metrics['loss'])
     
-    # Training loop for combined model (if news data available)
     if news_data is not None:
         print("\nTraining Combined Model...")
         cmb_train_losses = []
@@ -398,13 +363,11 @@ def main():
             cmb_train_losses.append(train_loss)
             cmb_val_losses.append(val_metrics['loss'])
     
-    # Evaluate both models
     ts_metrics, ts_preds, ts_true = evaluate(ts_model, ts_test_loader, criterion, device)
     
     if news_data is not None:
         cmb_metrics, cmb_preds, cmb_true = evaluate(combined_model, test_loader, criterion, device, is_combined=True)
     
-    # Print results
     print("\nEpochs:", epochs)
 
     print("\nTime Series Model Results:")
@@ -428,7 +391,6 @@ def main():
         print(f"MAE Improvement: {improvement['mae']:.2f}%")
         print(f"RMSE Improvement: {improvement['rmse']:.2f}%")
     
-    # Update the calls in main():
     plot_results("Time Series Model", ts_true, ts_preds, preprocessor.scaler, 
                 feature_index=0, save_path="ts_model_plot.png")
     if news_data is not None:

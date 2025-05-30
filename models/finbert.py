@@ -5,26 +5,17 @@ import pandas as pd
 import random
 
 def load_finbert(model_name="ProsusAI/finbert"):
-    """
-    Load the FinBERT model and tokenizer
-    """
     tokenizer = BertTokenizer.from_pretrained(model_name)
     model = BertForSequenceClassification.from_pretrained(model_name)
     return model, tokenizer
 
 def create_sentiment_pipeline(model, tokenizer):
-    """
-    Create a sentiment analysis pipeline
-    """
     return pipeline("sentiment-analysis", 
                    model=model, 
                    tokenizer=tokenizer,
                    device=0 if torch.cuda.is_available() else -1)
 
 def analyze_sentiment(nlp, text):
-    """
-    Analyze sentiment of a single text
-    """
     result = nlp(text)
     return {
         "text": text,
@@ -33,9 +24,6 @@ def analyze_sentiment(nlp, text):
     }
 
 def batch_analyze_sentiment(nlp, texts):
-    """
-    Analyze sentiment for a batch of texts
-    """
     results = []
     for text in texts:
         try:
@@ -51,9 +39,6 @@ def batch_analyze_sentiment(nlp, texts):
     return pd.DataFrame(results)
 
 def load_random_samples_from_csv(file_path, n_samples=5):
-    """
-    Load random samples from a CSV file
-    """
     df = pd.read_csv(file_path)
     if len(df) < n_samples:
         print(f"Warning: File contains only {len(df)} rows, using all available")
@@ -62,7 +47,6 @@ def load_random_samples_from_csv(file_path, n_samples=5):
     return random_samples['text'].tolist()
 
 if __name__ == "__main__":
-    # Load random samples from CSV
     csv_file = "telegram_raw.csv"
     print(f"Loading 5 random samples from {csv_file}...")
     try:
@@ -78,19 +62,15 @@ if __name__ == "__main__":
         ]
         print("Using default example texts instead")
     
-    # Load model
     print("\nLoading FinBERT model...")
     model, tokenizer = load_finbert()
     nlp = create_sentiment_pipeline(model, tokenizer)
     
-    # Analyze sentiment
     print("\nRunning sentiment analysis on sampled texts...")
     results = batch_analyze_sentiment(nlp, test_texts)
     
-    # Display results
     print("\nResults:")
     print(results.to_string(index=False))
     
-    # Print summary statistics
     print("\nSummary Statistics:")
     print(results['label'].value_counts())

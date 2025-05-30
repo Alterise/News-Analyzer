@@ -2,7 +2,6 @@ import os
 import psycopg2
 from psycopg2 import sql
 
-# Database configuration
 DB_CONFIG = {
     "dbname": os.getenv("POSTGRES_DB"),
     "user": os.getenv("POSTGRES_USER"),
@@ -12,9 +11,7 @@ DB_CONFIG = {
 }
 
 def execute_query_from_file(file_path):
-    """Execute SQL query from a file"""
     try:
-        # Read the query from file
         with open(file_path, 'r') as file:
             query = file.read()
         
@@ -22,14 +19,11 @@ def execute_query_from_file(file_path):
             print("Error: Query file is empty")
             return
         
-        # Connect to the database
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
         
-        # Execute the query
         cursor.execute(query)
         
-        # If it's a SELECT query, fetch and print results
         if query.strip().lower().startswith('select'):
             results = cursor.fetchall()
             print("Query executed successfully. Results:")

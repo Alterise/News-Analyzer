@@ -13,10 +13,8 @@ from embedding_storage import EmbeddingStorage
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# Database configuration
 db_config = {
     "dbname": os.getenv("POSTGRES_DB"),
     "user": os.getenv("POSTGRES_USER"),
@@ -45,7 +43,6 @@ class DataPreprocessor:
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         
     def convert_volume(self, val):
-        """Convert string with K/M/B suffix to float"""
         if pd.isna(val):
             return 0.0
         val = str(val).strip().upper()
@@ -56,17 +53,14 @@ class DataPreprocessor:
         return float(val)
 
     def clean_numeric(self, val):
-        """Clean any numeric string with commas/percentages"""
         if pd.isna(val):
             return 0.0
         return float(str(val).replace(',', '').replace('%', ''))
 
     def load_data(self, file_path):
-        """Load and preprocess financial data"""
         df = pd.read_csv(file_path)
         df['Date'] = pd.to_datetime(df['Date'])
         
-        # Clean and convert numeric columns
         df['Vol.'] = df['Vol.'].apply(self.convert_volume)
         numeric_cols = ['Price', 'Open', 'High', 'Low', 'Vol.', 'Change %']
         
@@ -74,16 +68,13 @@ class DataPreprocessor:
             if col != 'Vol.':
                 df[col] = df[col].apply(self.clean_numeric)
         
-        # Normalization
         df[numeric_cols] = self.scaler.fit_transform(df[numeric_cols])
         return df.sort_values('Date')
 
     def get_news_embeddings(self, start_date, end_date, model_name='ai-forever/sbert_large_nlu_ru'):
-        """Retrieve news embeddings from database"""
         with EmbeddingStorage(db_config) as storage:
             embeddings = storage.get_all_embeddings_for_model(model_name)
         
-        # Convert to DataFrame with date and embedding
         news_data = []
         for timestamp, embedding in embeddings:
             if start_date <= timestamp.date() <= end_date:
@@ -98,21 +89,18 @@ class DataPreprocessor:
         return pd.DataFrame(news_data)
 
     def create_sequences(self, data, lookback, news_data=None):
-        """Create time series sequences with news embeddings"""
         X_ts, X_news, y = [], [], []
         
         for i in range(lookback, len(data)):
             current_date = data.iloc[i]['Date'].date()
             X_ts.append(data.iloc[i-lookback:i][['Price', 'Open', 'High', 'Low', 'Vol.', 'Change %']].values)
             
-            # Add news embeddings if available
             if news_data is not None:
                 news_row = news_data[news_data['date'] == current_date]
                 if not news_row.empty:
                     X_news.append(news_row['embedding'].values[0])
                 else:
-                    # Zero-padding if no news for this date
-                    X_news.append(np.zeros(1024))  # sbert_large_nlu_ru embedding size
+                    X_news.append(np.zeros(1024))
             
             y.append(data.iloc[i]['Price'])
         
@@ -154,7 +142,6 @@ class BalancedTimeSeriesModel(nn.Module):
 class BalancedCombinedModel(nn.Module):
     def __init__(self, ts_input_size, embedding_size, hidden_size=128, num_layers=2):
         super().__init__()
-        # Time series processing (identical to BalancedTimeSeriesModel)
         self.ts_lstm = nn.LSTM(
             input_size=ts_input_size,
             hidden_size=hidden_size,
@@ -166,15 +153,11 @@ class BalancedCombinedModel(nn.Module):
             nn.Linear(hidden_size, 1),
             nn.Softmax(dim=1)
         )
-        
-        # News processing branch
         self.news_projection = nn.Sequential(
             nn.Linear(embedding_size, hidden_size),
             nn.ReLU(),
             nn.Dropout(0.2)
         )
-        
-        # Combined regressor (only difference is input size)
         self.regressor = nn.Sequential(
             nn.Linear(hidden_size * 2, 64),
             nn.ReLU(),
@@ -183,15 +166,10 @@ class BalancedCombinedModel(nn.Module):
         )
         
     def forward(self, ts_x, news_x):
-        # Time series processing (identical)
         ts_out, _ = self.ts_lstm(ts_x)
         attention_weights = self.temporal_attention(ts_out)
         ts_context = torch.sum(attention_weights * ts_out, dim=1)
-        
-        # News processing
         news_context = self.news_projection(news_x)
-        
-        # Concatenate and predict
         combined = torch.cat([ts_context, news_context], dim=1)
         return self.regressor(combined)
 
@@ -225,11 +203,9 @@ def train_model(model, train_loader, val_loader, device, is_combined=False, epoc
             optimizer.step()
             epoch_train_loss += loss.item()
         
-        # Validation
         val_metrics, _, _ = evaluate(model, val_loader, criterion, device, is_combined)
         scheduler.step(val_metrics['loss'])
         
-        # Save best model
         if val_metrics['loss'] < best_loss:
             best_loss = val_metrics['loss']
             torch.save(model.state_dict(), 'best_model.pth' if not is_combined else 'best_combined_model.pth')
@@ -274,8 +250,6 @@ def evaluate(model, dataloader, criterion, device, is_combined=False):
     return metrics, all_preds, all_targets
 
 def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, save_path="model_comparison.png"):
-    """Plot both models' predictions on the same graph"""
-    # Process data for inverse transform
     def inverse_transform(values):
         dummy = np.zeros((len(values), 6))
         dummy[:, 0] = values
@@ -304,7 +278,6 @@ def plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, scaler, save_path="m
         plt.show()
 
 def main():
-    # Configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     lookback = 30
     batch_size = 64
@@ -312,32 +285,27 @@ def main():
     test_size = 0.2
     embedding_model_name = 'ai-forever/sbert_large_nlu_ru'
     
-    # Load and preprocess data
     preprocessor = DataPreprocessor()
     df = preprocessor.load_data('btc_usd.csv')
     
-    # Get news embeddings
     start_date = df['Date'].min().date()
     end_date = df['Date'].max().date()
     news_data = preprocessor.get_news_embeddings(start_date, end_date, embedding_model_name)
     
-    # Create sequences
     if news_data is not None:
         X_ts, X_news, y = preprocessor.create_sequences(df, lookback, news_data)
-        embedding_size = 1024  # sbert_large_nlu_ru embedding size
+        embedding_size = 1024
     else:
         print("No news embeddings found")
         X_ts, y = preprocessor.create_sequences(df, lookback)
         X_news = None
         embedding_size = 1024
     
-    # Split data (maintain temporal order)
     indices = np.arange(len(X_ts))
     X_train, X_test, y_train, y_test = train_test_split(
         indices, y, test_size=test_size, shuffle=False
     )
     
-    # Create datasets
     ts_train_dataset = FinancialDataset(X_ts[X_train], y_train)
     ts_test_dataset = FinancialDataset(X_ts[X_test], y_test)
     
@@ -345,7 +313,6 @@ def main():
         cmb_train_dataset = FinancialDataset(X_ts[X_train], y_train, X_news[X_train])
         cmb_test_dataset = FinancialDataset(X_ts[X_test], y_test, X_news[X_test])
     
-    # Create dataloaders
     ts_train_loader = DataLoader(ts_train_dataset, batch_size=batch_size, shuffle=True)
     ts_test_loader = DataLoader(ts_test_dataset, batch_size=batch_size)
     
@@ -353,12 +320,10 @@ def main():
         cmb_train_loader = DataLoader(cmb_train_dataset, batch_size=batch_size, shuffle=True)
         cmb_test_loader = DataLoader(cmb_test_dataset, batch_size=batch_size)
     
-    # Initialize models
     ts_model = BalancedTimeSeriesModel(input_size=6).to(device)
     if news_data is not None:
         cmb_model = BalancedCombinedModel(ts_input_size=6, embedding_size=embedding_size).to(device)
     
-    # Train models
     print("Training Time Series Model...")
     ts_train_losses, ts_val_losses = train_model(ts_model, ts_train_loader, ts_test_loader, device, epochs=epochs)
     
@@ -367,7 +332,6 @@ def main():
         cmb_train_losses, cmb_val_losses = train_model(
             cmb_model, cmb_train_loader, cmb_test_loader, device, is_combined=True, epochs=epochs)
     
-    # Evaluate
     ts_metrics, ts_preds, ts_true = evaluate(ts_model, ts_test_loader, nn.HuberLoss(), device)
     print("\nTime Series Model Results:")
     print(f"Test Loss: {ts_metrics['loss']:.4f}")
@@ -382,7 +346,6 @@ def main():
         print(f"MAE: {cmb_metrics['mae']:.4f}")
         print(f"RMSE: {cmb_metrics['rmse']:.4f}")
         
-        # Calculate improvements
         improvement = {
             'loss': (ts_metrics['loss'] - cmb_metrics['loss']) / ts_metrics['loss'] * 100,
             'mae': (ts_metrics['mae'] - cmb_metrics['mae']) / ts_metrics['mae'] * 100,
@@ -393,7 +356,6 @@ def main():
         print(f"MAE Improvement: {improvement['mae']:.2f}%")
         print(f"RMSE Improvement: {improvement['rmse']:.2f}%")
         
-        # Plot comparison
         plot_comparison(ts_true, ts_preds, cmb_true, cmb_preds, preprocessor.scaler)
 
 if __name__ == '__main__':

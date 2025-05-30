@@ -10,11 +10,9 @@ import gc
 
 load_dotenv()
 
-# Model initialization
 model_name = "Helsinki-NLP/opus-mt-ru-en"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Initialize with better memory management
 tokenizer = MarianTokenizer.from_pretrained(model_name)
 try:
     model = MarianMTModel.from_pretrained(model_name).to(device)
@@ -23,7 +21,6 @@ except Exception as e:
     print(f"Model loading failed: {str(e)}")
     exit(1)
 
-# DB configuration
 db_config = {
     'host': os.getenv("POSTGRES_HOST"),
     'dbname': os.getenv("POSTGRES_DB"),
@@ -33,11 +30,10 @@ db_config = {
 }
 
 def batch_translate(texts: List[str], batch_size: int = 32) -> List[str]:
-    """Optimized translation with proper length handling"""
     translations = []
     
     gen_kwargs = {
-        'max_new_tokens': 490,  # Conservative limit (512 - safety margin)
+        'max_new_tokens': 490,
         'num_beams': 1,
         'do_sample': False,
         'early_stopping': False,
@@ -49,17 +45,15 @@ def batch_translate(texts: List[str], batch_size: int = 32) -> List[str]:
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
             
-            # Smart truncation with length check
             inputs = tokenizer(
                 batch,
                 return_tensors="pt",
                 padding='longest',
                 truncation=True,
-                max_length=490,  # Same as max_new_tokens
+                max_length=490,
                 return_attention_mask=False
             ).to(device, non_blocking=True)
             
-            # Skip empty batches
             if inputs['input_ids'].shape[1] == 0:
                 translations.extend([""] * len(batch))
                 continue
@@ -75,7 +69,6 @@ def batch_translate(texts: List[str], batch_size: int = 32) -> List[str]:
                 print(f"Error in batch {i//batch_size}: {str(e)}")
                 translations.extend([""] * len(batch))
             
-            # Memory management
             del inputs, outputs
             if device == "cuda":
                 torch.cuda.empty_cache()
@@ -85,13 +78,11 @@ def batch_translate(texts: List[str], batch_size: int = 32) -> List[str]:
     return translations
 
 def translate_and_save_messages(db_batch_size: int = 256, translate_batch: int = 32):
-    """More robust translation pipeline with better error handling"""
     conn = None
     try:
         conn = psycopg2.connect(**db_config)
         cursor = conn.cursor()
         
-        # Get untranslated messages count
         cursor.execute("""
         SELECT COUNT(*) FROM telegram_ru r
         WHERE NOT EXISTS (
@@ -108,7 +99,6 @@ def translate_and_save_messages(db_batch_size: int = 256, translate_batch: int =
         with tqdm(total=total, desc="Translating") as pbar:
             while True:
                 try:
-                    # Fetch batch with timeout
                     cursor.execute("""
                     SELECT r.channel_id, r.message_id, r.date, r.text
                     FROM telegram_ru r
@@ -127,7 +117,6 @@ def translate_and_save_messages(db_batch_size: int = 256, translate_batch: int =
                     texts = [msg[3] for msg in messages]
                     translated = batch_translate(texts, translate_batch)
 
-                    # Insert with retry logic
                     try:
                         execute_values(
                             cursor,
@@ -156,5 +145,4 @@ def translate_and_save_messages(db_batch_size: int = 256, translate_batch: int =
             conn.close()
 
 if __name__ == "__main__":
-    # Smaller batches for stability
     translate_and_save_messages(db_batch_size=256, translate_batch=32)

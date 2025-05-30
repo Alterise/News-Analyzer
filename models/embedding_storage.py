@@ -32,12 +32,6 @@ class EmbeddingStorage:
             self.vector_registered = False
 
     def save_embedding(self, special_id, model_name, input_text, embedding, embedding_size, timestamp=None):
-        """
-        Save a single embedding to the database.
-        
-        Args:
-            embedding: Should be a numpy array or list that can be converted to pgvector
-        """
         if self.conn is None:
             raise ValueError("Database connection is not established.")
 
@@ -46,7 +40,6 @@ class EmbeddingStorage:
                 if timestamp is None:
                     timestamp = datetime.now()
 
-                # Convert to numpy array if not already
                 if not isinstance(embedding, np.ndarray):
                     embedding = np.array(embedding, dtype=np.float32)
 
@@ -73,29 +66,26 @@ class EmbeddingStorage:
 
         try:
             with self.conn.cursor() as cursor:
-                # Prepare all data for insertion
                 data_to_insert = []
                 
                 for record in embeddings_batch:
-                    # Ensure embedding is numpy array
                     embedding = record[3]
                     if not isinstance(embedding, np.ndarray):
                         embedding = np.array(embedding, dtype=np.float32)
 
                     data_to_insert.append((
-                        str(record[0]),  # special_id
-                        str(record[1]),  # model_name
-                        str(record[2]),  # input_text
-                        embedding,      # embedding_vector
-                        int(record[4]), # embedding_size
-                        record[5] if record[5] else datetime.now()  # timestamp
+                        str(record[0]),
+                        str(record[1]),
+                        str(record[2]),
+                        embedding,
+                        int(record[4]),
+                        record[5] if record[5] else datetime.now()
                     ))
 
-                # Insert all records in one operation
                 if data_to_insert:
                     execute_values(
                         cursor,
-                        """INSERT INTO embeddings_fin
+                        """INSERT INTO embeddings
                         (special_id, model_name, input_text, embedding_vector, embedding_size, timestamp)
                         VALUES %s
                         ON CONFLICT (special_id, model_name) DO NOTHING""",
@@ -103,7 +93,6 @@ class EmbeddingStorage:
                     )
                     self.conn.commit()
                     
-                    # Get the count of actually inserted rows
                     inserted_count = cursor.rowcount
                     duplicate_count = len(data_to_insert) - inserted_count
                     
@@ -116,17 +105,11 @@ class EmbeddingStorage:
         
 
     def get_all_embeddings_for_model(self, model_name):
-        """
-        Retrieve all embeddings for a specified model as numpy arrays.
-        
-        Returns:
-            List of (timestamp, numpy_array) tuples
-        """
         if self.conn is None:
             raise ValueError("Database connection is not established.")
 
         try:
-            self._register_vector_type()  # Ensure vector type is registered
+            self._register_vector_type()
             
             with self.conn.cursor() as cursor:
                 cursor.execute("""
@@ -137,7 +120,6 @@ class EmbeddingStorage:
                 results = cursor.fetchall()
 
                 if results:
-                    # Verify we got numpy arrays
                     if not isinstance(results[0][1], np.ndarray):
                         raise RuntimeError("Vector type registration failed - got unexpected type")
                     return results
